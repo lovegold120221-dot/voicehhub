@@ -1,13 +1,14 @@
-node_modules/
-build/
-dist/
-coverage/
+/.build/
+/dist/
+__pycache__/
+*.pyc
 .DS_Store
-*.log
-.env*
-!.env.example
-!.env.whatsapp.example
+/orchestrator/settings.json
+/web/models.json
 
-client.json
-
-.baileys_auth/
+# Secrets + generated client config (never commit)
+/.env
+/.env.*
+!/.env.example
+/web/firebase-config.js
+/workspace/
