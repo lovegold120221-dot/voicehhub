@@ -200,7 +200,7 @@ function messageText(message: any): string {
   );
 }
 
-function mediaInfo(message: any): { isMedia: boolean; mimeType?: string; caption?: string; mediaType?: string } {
+function mediaInfo(message: any): { isMedia: boolean; mimeType?: string; caption?: string; mediaType?: string; fileName?: string } {
   const m = message?.message;
   if (!m) return { isMedia: false };
   const img = m.imageMessage;

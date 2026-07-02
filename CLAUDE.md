@@ -49,3 +49,20 @@ The following commands cover standard development workflows. All scripts are def
 *   **`functions/`**: Contains modularized, serverless functions (likely for Firebase/Cloud Functions) that execute specific, discrete backend tasks.
 *   **`docs/`**: Contains architectural diagrams (`.mmd`, `.svg`) and high-level flowcharts, invaluable for understanding system invariants.
 *   **`config`**: Environment variables and configuration files are crucial for connecting to external services (Supabase, Gemini, Firebase). Ensure all keys are loaded from the `.env` file.
+
+## 🔑 Key Files & Directories
+
+| Path | Purpose |
+| --- | --- |
+| `src/App.tsx` | Main application component with routing logic. |
+| `src/components/BeatriceAgent.tsx` | Core AI agent interface and Gemini API integration. |
+| `server/index.ts` | Express server entry point, defines all API routes. |
+| `package.json` | Project dependencies and scripts. |
+| `.env.example` | Template for environment variables (commit this). |
+| `README.md` | Project overview and quick start guide. |
+
+## 🚀 Deployment Notes
+
+*   **Environment:** Production deployment uses Node.js 22+ with TypeScript compilation via Vite.
+*   **Hosting:** Application is containerized using Docker (`Dockerfile`, `docker-compose.yml`).
+*   **Configuration:** All sensitive keys (Gemini API, Supabase credentials) are managed through environment variables. Never hardcode secrets in source files.

@@ -12,3 +12,5 @@ __pycache__/
 !/.env.example
 /web/firebase-config.js
 /workspace/
+node_modules/
+voice-agent/

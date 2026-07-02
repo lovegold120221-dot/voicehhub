@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { auth } from '../firebase';
 import { User } from 'firebase/auth';
 import { supabase, handleDbError } from '../lib/supabase';
-import { LiveServerMessage, Modality, Type, FunctionDeclaration } from '@google/genai';
+import { LiveServerMessage, Modality, Type, FunctionDeclaration, GoogleGenAI } from '@google/genai';
 import { AudioRecorder, AudioStreamer } from '../lib/audio';
 import { listKnowledgeFiles, fetchKnowledgeFileContent } from '../lib/supabaseStorage';
 import { Loader2, Mic, Square, Check, Settings, X, Save, Video, MessageSquare, Monitor, ChevronDown, Moon, Sun } from 'lucide-react';

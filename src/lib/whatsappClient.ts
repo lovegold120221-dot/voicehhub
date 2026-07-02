@@ -69,7 +69,11 @@ export async function getWhatsAppStatus(userId: string): Promise<{
   const res = await fetch(`${getBackendUrl()}/api/whatsapp/status/${encodeURIComponent(userId)}`);
   if (!res.ok) return { status: 'error', error: `Server returned ${res.status}` };
   const text = await res.text();
-  return text ? JSON.parse(text) : {};
+  try {
+    return text ? JSON.parse(text) : { status: 'unknown' };
+  } catch (e) {
+    return { status: 'error', error: 'Invalid response format' };
+  }
 }
 
 export async function disconnectWhatsApp(userId: string): Promise<void> {
@@ -83,7 +87,7 @@ export async function sendWhatsAppMessage(
   userId: string,
   to: string,
   text: string,
-  permissions?: Record<string, boolean>,
+  permissions?: Record<string, any>,
 ): Promise<any> {
   return requestJson('/api/whatsapp/send', {
     method: 'POST',
@@ -95,7 +99,7 @@ export async function callWhatsAppTool(
   userId: string,
   tool: string,
   params: Record<string, any>,
-  permissions?: Record<string, boolean>,
+  permissions?: Record<string, any>,
 ): Promise<any> {
   return requestJson('/api/whatsapp/tool', {
     method: 'POST',
@@ -107,7 +111,11 @@ export async function getWhatsAppMessages(userId: string, limit = 20): Promise<{
   const res = await fetch(`${getBackendUrl()}/api/whatsapp/messages/${encodeURIComponent(userId)}?limit=${limit}`);
   if (!res.ok) throw new Error(`Server returned ${res.status}`);
   const text = await res.text();
-  return text ? JSON.parse(text) : {};
+  try {
+    return text ? JSON.parse(text) : { messages: [] };
+  } catch (e) {
+    return { messages: [] };
+  }
 }
 
 export async function getWhatsAppAdminOverview(userId: string): Promise<any> {
