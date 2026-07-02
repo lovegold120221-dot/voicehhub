@@ -4001,8 +4001,8 @@ ${historyContext}
                         to: args.to,
                         name: args.name || 'Unknown',
                         number: args.number || args.to.split('@')[0],
-                        text: args.text,
-                        callId: call.id
+                        text: args.text || '',
+                        callId: call.id || taskId
                       });
                       result = { ok: true, message: "Confirmation UI displayed to user. Waiting for approval." };
                     } else if (callName === 'whatsapp_action') {
