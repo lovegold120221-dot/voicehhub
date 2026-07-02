@@ -25,7 +25,7 @@ export interface DbErrorInfo {
   };
 }
 
-export function handleDbError(error: unknown, table: string | null, operation: string): never {
+export function handleDbError(error: unknown, table: string | null, operation: string): void {
   const errInfo: DbErrorInfo = {
     error: error instanceof Error ? error.message : (typeof error === 'object' && error !== null ? JSON.stringify(error) : String(error)),
     table,
@@ -36,5 +36,4 @@ export function handleDbError(error: unknown, table: string | null, operation: s
     },
   };
   console.error('Supabase Error:', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
 }
