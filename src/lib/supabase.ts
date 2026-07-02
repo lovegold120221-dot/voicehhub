@@ -27,7 +27,7 @@ export interface DbErrorInfo {
 
 export function handleDbError(error: unknown, table: string | null, operation: string): never {
   const errInfo: DbErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: error instanceof Error ? error.message : (typeof error === 'object' && error !== null ? JSON.stringify(error) : String(error)),
     table,
     operation,
     authInfo: {

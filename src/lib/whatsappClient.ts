@@ -14,9 +14,9 @@ export function getBackendUrl(): string {
       const isCurrentHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
       const isStoredHttp = stored.startsWith('http://');
 
-      if (isCurrentHttps && isStoredHttp && !isStoredLocalhost) {
-        // Skip stored HTTP URL to avoid Mixed Content errors in HTTPS environment
-      } else if (!isStoredLocalhost || isCurrentLocalhost) {
+      // Only use the stored URL if it's safe: either we're on HTTP, or the stored URL
+      // is also HTTPS, or both current and stored are localhost.
+      if (!isCurrentHttps || !isStoredHttp || isStoredLocalhost || isCurrentLocalhost) {
         return stored.replace(/\/+$/, '');
       }
     }
