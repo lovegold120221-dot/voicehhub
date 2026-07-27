@@ -1,100 +1,148 @@
 # AGENTS.md
 
+## MANDATORY: Kokoro TTS Voice Reports
+
+**After EVERY task — no exceptions — you MUST generate a spoken TTS report and auto-play it.** This applies to code changes, bug fixes, file operations, answering questions, reading files, or any response to the user.
+
+```
+python3 ~/.opencode/skills/kokoro-tts/tts.py "Your natural, humanlike report text"
+```
+
+- Write the report in a conversational, humanlike style (contractions, varied sentences, like a colleague giving a quick update)
+- Keep it brief: 1-3 sentences for small tasks, 3-5 for larger ones
+- Default voice: `af_heart` (warm, friendly). Use `--voice af_nicole` for technical reports.
+- **This is NOT optional. Do it after every single response.**
+
 ## Commands
 
 ```
-npm run dev       # Start frontend server on port 3000, binds 0.0.0.0
-npm run dev:api   # Start backend Express server on port 4200, binds 0.0.0.0
-npm run dev:full  # Start both frontend and backend servers
-npm run build     # Production build via Vite
-npm run lint      # Typecheck only (tsc --noEmit)
-npm run docker:whatsapp:up    # Run WhatsApp backend in Docker on port 4200
-npm run docker:whatsapp:down  # Stop WhatsApp backend Docker stack
-npm run smoke:whatsapp        # Check /api/health for the backend
+npm run dev              # Frontend (Vite) on :3000, binds 0.0.0.0
+npm run dev:api          # Backend (Express + tsx) on :4200, binds 0.0.0.0
+npm run dev:full         # Both concurrently
+npm run build            # Production build via Vite → dist/
+npm run lint             # Typecheck only (tsc --noEmit) — NOT ESLint
+npm run start            # Production: tsx server/index.ts
+npm run clean            # rm -rf dist
+npm run docker:whatsapp:build   # Build WhatsApp Docker image
+npm run docker:whatsapp:up      # WhatsApp backend in Docker on :4200
+npm run docker:whatsapp:down    # Stop WhatsApp Docker stack
+npm run smoke:whatsapp          # BROKEN — scripts/smoke-whatsapp-server.mjs is missing
 ```
 
-There is no test framework, no CI, and no pre-commit hooks.
+No test framework, no test scripts, no pre-commit hooks. One CI workflow: `.github/workflows/android-distribution.yml` builds APK + deploys to Firebase Hosting + Firebase App Distribution (Android TWA).
 
-## Environment
+## Entrypoint & Architecture
 
-- `.env` holds all secrets. It is gitignored but an example is at `.env.example`.
-- `GEMINI_API_KEY` is injected as `process.env.GEMINI_API_KEY` (not `VITE_`-prefixed) via `vite.config.ts` `define`. Do not rename this key.
-- Firebase config (`VITE_FIREBASE_*`), Google OAuth (`VITE_GOOGLE_CLIENT_ID`), and Supabase URL/key are typically `VITE_`-prefixed env vars.
-- `DISABLE_HMR=true` disables HMR (used in AI Studio to prevent flickering during agent edits). Keep this check in `vite.config.ts`.
-- `APP_URL` is injected by AI Studio at runtime for Cloud Run deployments. Do not hardcode a base URL.
-- `VITE_SANDBOX_URL` / `VITE_BACKEND_URL` point to the backend server (default `http://localhost:4200`; set to the ngrok HTTPS URL when tunneling).
-- Server-only vars (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SANDBOX_PORT`, `SANDBOX_ROOT`, `WA_AUTH_ROOT`, `WA_LOG_LEVEL`, `WA_SYNC_FULL_HISTORY`, `WA_HISTORY_LIMIT`, `WA_HISTORY_RESPONSE_LIMIT`) are read by `server/index.ts` via `dotenv/config`.
+```
+index.html → src/main.tsx → src/App.tsx
+```
 
-## WhatsApp Integration (Backend)
+Single-package Vite + React 19 + TypeScript. Optional Express backend in `server/`. Firebase Auth (hardcoded config in `src/firebase.ts`), Supabase (Postgres + Storage), Gemini Live API for voice.
 
-- **Base URL**: local Docker/server default `http://localhost:4200`; expose with `ngrok http 4200` when a public URL is needed. Do not hardcode the old VPS URL.
-- **Endpoints**:
-  - **Health**: `GET /api/health`
-  - **QR Code**: `GET /api/whatsapp/qr/{userId}` (returns raw PNG)
-  - **Tool Execution**: `POST /api/whatsapp/tool`
-  - **Call History**: `POST /api/whatsapp/tool` with `tool=getCalls`
-  - **Webhook Configuration**: `POST /api/whatsapp/admin/config` (to set `webhookUrl`)
-- **Supported tools**: `readChats`, `getContacts`, `getGroups`, `getMessageHistory`, `getCalls`, `sendMessage`, `sendGroupMessage`, `sendMedia`, `sendAudio`, `sendReaction`, `sendButtons`.
-- **Delegated send rule**: outbound WhatsApp tools require `permissions.requireUserApproval=true`, `permissions.approvedByUser=true`, and `permissions.mode="delegated_send"`. Beatrice must preview the message and wait for `SEND`/`Approved` before sending.
-- **History mimicry**: `WA_SYNC_FULL_HISTORY=true` makes Baileys request desktop-style full history. Persist up to `WA_HISTORY_LIMIT` messages (default 50000) and allow `getMessageHistory` responses up to `WA_HISTORY_RESPONSE_LIMIT` (default 2000) so Beatrice can mimic the user's own `fromMe:true` WhatsApp style.
+`src/App.tsx` (194 lines) is the orchestrator: auth state, theme, user routing (EntryFlow → AuthPage or BeatriceAgent). Business logic is extracted to separate modules.
 
-Single-package Vite + React 19 + TypeScript app + optional Express backend (server/). Firebase handles auth and data, Gemini Live API handles the AI voice pipeline. The backend server provides WhatsApp integration (Baileys + Cloud API) and web glance API; run separately with `npx tsx server/index.ts`.
+### Separate sub-projects (not part of npm workflow)
 
-**Entry point:** `index.html` → `src/main.tsx` → `src/App.tsx`
+| Directory | Purpose |
+|---|---|
+| `functions/` | Firebase Cloud Functions (`apiProxy` — proxies `/api/**` to VPS backend). Own `package.json`. |
+| `flutter/` | Flutter mobile app. Own `pubspec.yaml`. |
+| `orchestrator/` | Python orchestrator + voice bridge (`voice_bridge.py`). |
+| `web/` | Standalone EburonHub web app (`web/index.html`). |
 
-**`src/App.tsx`** (~200 lines) is the slim orchestrator: auth state, Firebase init, user routing (EntryFlow → AuthPage or BeatriceAgent). All business logic is extracted to separate modules.
+## Critical Gotchas
 
-**Key source files:**
+- **`@` path alias maps to root (`.`), NOT `src/`.** `import { X } from '@/src/lib/foo'` is correct; `import { X } from '@/lib/foo'` will fail.
+- **`process.env.*` in frontend code is injected by Vite `define`** (non-VITE_ vars like `GEMINI_API_KEY`, `SUPABASE_URL`), not standard `import.meta.env`. VITE_-prefixed vars use `import.meta.env`. See `vite.config.ts:10-17` for the mapping.
+- **`npm run lint` is `tsc --noEmit` only.** ESLint exists (`eslint.config.mjs`) but only runs Firebase security rules checks — it is NOT part of the lint script.
+- **`npm run smoke:whatsapp` references `scripts/smoke-whatsapp-server.mjs` which does not exist.** The command will fail.
+- **Firebase service account JSONs** (`beatrice-os-*.json`) in the repo root are gitignored. Never commit them.
+- **`Cross-Origin-Opener-Policy: same-origin-allow-popups`** is set in both Vite dev server (`vite.config.ts:25`) and Express (`server/index.ts:28`). Required for Firebase Auth popup flow. Do not remove.
+- **`DISABLE_HMR` env var** disables Vite HMR (used in AI Studio to prevent flickering during agent edits). See `vite.config.ts:29`.
+- **Two Supabase clients**: `src/lib/supabase.ts` (frontend, uses Vite-injected `process.env`) and `server/supabase.ts` (backend, uses `dotenv/config` directly). They are separate instances.
+- **`functions/src/index.ts` hardcodes the VPS IP** `http://168.231.78.113:4200` as the backend target. If the VPS IP changes, this must be updated.
+- **`.firebaserc` says project `beatrice-os`** but the CI workflow deploys to `eburon-ai-beatrice`. These are different Firebase projects.
+
+## Key Source Files
+
 | File | Purpose |
 |---|---|
-| `src/App.tsx` | Root orchestrator: auth state, user routing |
-| `src/constants.ts` | Shared constants (`LANGUAGES` array) |
-| `src/components/BeatriceAgent.tsx` | Main AI voice agent: Gemini Live session, audio pipeline, tool calling, settings panel, camera feed, document generation |
-| `src/components/AuthPage.tsx` | Auth UI: sign in / register / reset password forms, Google OAuth trigger via props |
-| `src/components/EntryFlow.tsx` | Splash → Onboarding flow + `isGoogleLinked` helper |
-| `src/firebase.ts` | Firebase init + `handleFirestoreError()` helper |
-| `src/lib/audio.ts` | `AudioStreamer` (TTS playback) and `AudioRecorder` (mic capture) |
-| `src/components/UnifiedTranscript.tsx` | Animated word-by-word transcript |
-| `src/index.css` | Single `@import "tailwindcss";` line (Tailwind v4) |
-| `vite.config.ts` | Path alias `@` → `.`, Tailwind v4 plugin, env injection |
-| `src/components/WhatsAppSettings.tsx` | WhatsApp pairing UI, permission toggles, Firestore sync |
-| `src/lib/whatsappClient.ts` | WhatsApp backend API client (pair, send, status, contacts) |
-| `src/lib/supabase.ts` | Supabase client setup + error handling |
-| `src/lib/supabaseStorage.ts` | Avatar + knowledge file upload/list/delete to Supabase Storage |
-| `server/index.ts` | Express backend: WhatsApp + web glance + health API routes |
-| `server/whatsapp.ts` | WhatsAppManager: Baileys / Cloud API session lifecycle |
-| `server/whatsapp-tools.ts` | Permission-gated WhatsApp tool handlers |
-
-## Firebase + Firestore
-
-- Config is hardcoded in `src/firebase.ts`.
-- Firestore blueprint: `firebase-blueprint.json` defines `User` and `Message` schemas.
-- **Messages are immutable** — `allow update, delete: if false` in `firestore.rules`. Never attempt to edit or delete messages.
-- Every Firestore operation must use `handleFirestoreError()` from `src/firebase.ts` for structured error logging (includes auth context).
-- Security invariants in `security_spec.md` must be preserved: user data isolation, timestamp validation (`== request.time`), role constrained to `user`/`model`, field validation by whitelist, length limits (`personaName` ≤ 50, `customPrompt` ≤ 2000, `message.text` ≤ 5000, document ID ≤ 128 chars matching `^[a-zA-Z0-9_\-]+$`).
+| `src/components/BeatriceAgent.tsx` | Main agent (4960 lines): Gemini Live session, audio pipeline, ~40 tool declarations, settings panel, camera, document generation, memory |
+| `src/firebase.ts` | Firebase init + `getAuth` only — hardcoded config for project `beatrice-os` |
+| `src/lib/supabase.ts` | Supabase client + `handleDbError()` — every DB op must use this for structured error logging |
+| `src/lib/audio.ts` | `AudioStreamer` (PCM16 mono 24kHz TTS playback) and `AudioRecorder` (mic capture) |
+| `src/lib/whatsappClient.ts` | Backend API client — auto-detects backend URL from `VITE_BACKEND_URL`, then `VITE_SANDBOX_URL`, then `localStorage` |
+| `src/constants.ts` | Shared `LANGUAGES` array (147 entries) — single source of truth |
+| `src/index.css` | Single `@import "tailwindcss"` line + full theme system (40+ custom properties, 70+ light-mode overrides) |
+| `vite.config.ts` | Path alias `@` → `.`, Tailwind v4 plugin, env injection via `define`, COOP header, HMR toggle |
+| `server/index.ts` | Express backend: WhatsApp routes, Belgian tools, sandbox runner, Cerebras browser, web glance, document gen, health |
+| `server/whatsapp.ts` | `WhatsAppManager`: Baileys session lifecycle, SSE streaming, auto-sync |
+| `server/whatsapp-tools.ts` | Permission-gated WhatsApp tool dispatch |
+| `server/supabase.ts` | Server-side Supabase client (uses `dotenv/config`, separate from frontend client) |
+| `functions/src/index.ts` | Firebase Cloud Function `apiProxy` — proxies `/api/**` to VPS backend |
 
 ## Gemini Live API
 
-- SDK: `@google/genai` (`^1.29.0`), model: `gemini-2.5-flash-native-audio-preview-09-2025`.
-- Audio modalities are used for real-time bidirectional voice; tool calls (`functionCall` in `onmessage` callback) drive WhatsApp, Google Services (Gmail, Calendar, Tasks, Contacts), web search, document generation, camera, and phone dialing.
-- 17 tools declared. Execution is a single switch statement inside the `onmessage` closure.
-- The voice personality prompt (`VOICE_PERSONALITY_PROMPT`) is a ~350-line constant in `src/components/BeatriceAgent.tsx`. Do not alter it casually — it defines the entire agent persona.
-- Permissions (10 boolean toggles, all default `false`) are injected into the system instruction at session start. Changes require session reconnect.
-- Document generation uses a separate non-voice Gemini session (`gemini-2.5-flash`, non-streaming).
-- Audio output is PCM16 mono 24kHz, streamed via `AudioStreamer` (decode → queue → schedule → play).
+- **SDK**: `@google/genai` `^1.29.0` (frontend). Also `@google/generative-ai` `^0.24.1` (server-side sandbox).
+- **Model**: `gemini-2.5-flash-native-audio-preview-12-2025` (stored as obfuscated constant `_M` via `String.fromCharCode`).
+- **Brand obfuscation**: SDK class name built via `['Goo','gle','Gen','AI'].join('')` to avoid plaintext in bundle.
+- ~40 tools declared in `functionDeclarations`. Execution is a switch/case inside the `onmessage` closure.
+- `VOICE_PERSONALITY_PROMPT` (~460 lines) in `BeatriceAgent.tsx` defines the entire persona. Do not alter casually.
+- Document generation uses a separate non-voice Gemini session (`gemini-2.5-flash`).
+- Audio output: PCM16 mono 24kHz, streamed via `AudioStreamer` (decode → queue → schedule → play).
+- Permissions (booleans, default `true`) are injected into the system instruction at session start. Changes require reconnect.
+- 10 most recent memories from Supabase `memories` table are pre-loaded into the system prompt.
+
+## Firebase + Firestore
+
+| File | Purpose |
+|---|---|
+| `src/firebase.ts` | Hardcoded Firebase config for `beatrice-os`, exports `auth` only |
+| `firestore.rules` | Permissive (`allow read, write: if true`) — not enforced |
+| `security_spec.md` | Describes desired state (user isolation, field validation, length limits), but actual rules don't implement it |
+| `firebase-blueprint.json` | Defines `User` and `Message` schemas |
+| `firebase.json` | Hosting config — rewrites `/api/**` to Cloud Function `apiProxy`, SPA fallback |
+| `.firebaserc` | Default project: `beatrice-os` (note: CI deploys to `eburon-ai-beatrice`) |
+
+## Server / Backend
+
+- **Run**: `npm run dev:api` or `npx tsx server/index.ts`
+- **Port**: `process.env.PORT || process.env.SANDBOX_PORT || '4200'`
+- **Static files**: Serves `dist/` if built — acts as full web server (SPA fallback on `*` routes).
+- **WhatsApp**: Baileys exclusively (Go WhatsApp removed). SSE streaming at `GET /api/whatsapp/stream/:userId`.
+- **Housekeeping**: Every 30 min evicts stale WhatsApp sessions (`error`/`disconnected` state, not reconnecting).
+- **CORS**: Wide open (`origin: '*'`). `Cross-Origin-Opener-Policy: same-origin-allow-popups`.
+- `.env.example` documents all env var names (30 lines). Actual values live in `.env` (gitignored). See `README.md` (env section) and `vite.config.ts` (`define` block) for details.
 
 ## UI / Styling
 
-- Tailwind CSS v4 via `@tailwindcss/vite` plugin — uses `@import "tailwindcss"` syntax, no `tailwind.config.*`.
-- Animation library: `motion` (formerly framer-motion), imported as `motion/react`.
+- Tailwind CSS v4 via `@tailwindcss/vite` plugin (`@import "tailwindcss"`, no `tailwind.config.*`).
+- Animations: `motion/react` (fka framer-motion).
 - Icons: `lucide-react`.
-- Markdown rendering: `react-markdown` for chat messages.
-- Dark theme: `#050505` background, amber/warm peach (`#d0a78b`) accent.
+- Markdown: `react-markdown`.
+- Dark theme (`#050505` bg, `#d0a78b` accent) with light theme support via CSS custom properties.
+- Theme persisted in `localStorage` key `beatrice_theme`.
+- Document templates in `public/*-template.html` (11 types: contract, invoice, letter, proposal, etc.).
 
-## Reference UI
+## VPS Deployment
 
-`public/reference-ui.html` contains the canonical landing page design with the orb animation, blob drift keyframes, peach glow, transcription area, and bottom nav. Use this as the design source of truth for UI changes.
+- **URL**: `https://whatsapp.eburon.ai`
+- **Process manager**: PM2 (`ecosystem.config.cjs`), manages 3 apps: `voxx-backend` (port 4200), `voix-backend` (port 3076), `api-eburon`
+- **Reverse proxy**: Traefik with Let's Encrypt
+- **Run**: `pm2 start node_modules/.bin/tsx -- server/index.ts --port=4200 --host=0.0.0.0`
+- Hot-swap: `rsync` code to `/opt/voxx-zero/`, rebuild `dist/`, `pm2 restart voxx-backend --update-env`
 
-## File to ignore
+## Docker
 
-`temp.txt` is scrap data (Gemini SDK type definitions). Do not reference, import, or modify it.
+Two Dockerfiles for different purposes:
+- `Dockerfile` — Full app (port 10000), uses Chromium for Puppeteer. Used for Render deployment.
+- `Dockerfile.whatsapp` — WhatsApp-only backend (port 4200), slim image, no browser. Used via `docker-compose.whatsapp.yml`.
+
+## Other Instruction Files
+
+- `CLAUDE.md` — Claude Code instructions (somewhat stale, references "Voxx-Zero" naming)
+- `GEMINI.md` — Gemini-specific overview
+- `MEMORY.md` — Project memory: deployment details, VPS IP, Supabase URL, architecture decisions, bug fix log
+- `TASK.md` — Historical task log with implementation context
+- `WHITEPAPER.md` — Project whitepaper
+- `docs/` — Architecture diagrams (Mermaid `.mmd` + SVG)
